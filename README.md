@@ -25,9 +25,9 @@ The approach integrates:
 
 ├── README.md                # Project overview and usage guide
 
-├── LICENSE                  # License file
+├── LICENSE                  
 
-├── .gitignore               # Files to ignore in git
+├── .gitignore               
 
 ---
 
