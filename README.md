@@ -15,13 +15,19 @@ The approach integrates:
 ## Repository Structure
 
 
-├── scripts/               # R scripts for preprocessing, modeling, visualization
-├── figures/               # Generated graphs 
-├── output/                # Prediction results and performance metrics
-├── docs/                  # Reports and supplementary documentation
-├── README.md              # Project overview and usage guide
-├── LICENSE                # License file
-├── .gitignore             # Files to ignore in git
+├── scripts/                 # R scripts for preprocessing, modeling, visualization
+
+├── figures/                 # Generated graphs 
+
+├── output/                  # Prediction results and performance metrics
+
+├── docs/                    # Reports and supplementary documentation
+
+├── README.md                # Project overview and usage guide
+
+├── LICENSE                  # License file
+
+├── .gitignore               # Files to ignore in git
 
 ---
 
