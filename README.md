@@ -7,7 +7,6 @@ This repository provides a flexible and scalable framework to distribute infecti
 The approach integrates:
 - Electronic health records (EHRs) from MUSC and Prisma Health,
 - Hospital admission data from the SC Revenue and Fiscal Affairs (RFA) office,
-- CDC reported statewidhospitalization (2024–2025),
 - Machine learning (XGBoost) models optimized using Bayesian hyperparameter tuning.
 
 ---
