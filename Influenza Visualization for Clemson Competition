@@ -1,0 +1,216 @@
+# Combined Influenza Visualization for Clemson Competition
+
+# 1. Load Required Libraries
+library(tidyverse)
+library(usmap)
+library(viridis)
+library(patchwork)  # For combining plots
+library(scales)
+
+# 2. Load Data
+df <- read_csv("/Users/tanvirahammed/Downloads/target-hospital-admissions-3.csv")
+
+# ============================================================================
+# PLOT A: Peak Influenza Hospitalization Intensity Map (WIDER)
+# ============================================================================
+
+map_ready_data <- df %>%
+   mutate(date = as.Date(date)) %>%
+   filter(date >= as.Date("2025-10-01")) %>%
+   filter(!location_name %in% c("US", "Puerto Rico", "District of Columbia")) %>%
+   group_by(location_name) %>%
+   summarize(peak_weekly_rate = max(weekly_rate, na.rm = TRUE)) %>%
+   rename(state = location_name)
+
+plot_a <- plot_usmap(
+   data = map_ready_data, 
+   values = "peak_weekly_rate", 
+   color = "white",      
+   size = 0.18,           
+   labels = TRUE,
+   label_color = "black"
+) + 
+   scale_fill_viridis_c(
+      option = "magma", 
+      name = "Peak Weekly Rate\n(per 100k people)", 
+      direction = -1,
+      begin = 0.3,
+      end = 0.9,
+      label = scales::comma
+   ) +
+   labs(
+      title = "A. Peak Influenza Hospitalization Intensity by State",
+      subtitle = "Highest recorded weekly hospitalization rate (Oct 2025 – Present)"
+   ) +
+   theme(
+      legend.position = "right",
+      plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(size = 13, face = "italic", hjust = 0.5),  # Increased to 13
+      legend.title = element_text(size = 11),
+      legend.key.height = unit(1.2, "cm"),  # Taller legend
+      legend.key.width = unit(0.4, "cm"),
+      plot.margin = margin(5, 5, 5, 5),  # Reduced margins
+      # Remove extra spacing around the plot
+      panel.spacing = unit(0, "lines")
+   )
+
+# ============================================================================
+# PLOT B: Lagged Correlation Heatmap
+# ============================================================================
+
+# Prepare wide data
+wide_data <- df %>%
+   mutate(date = as.Date(date)) %>%
+   filter(date >= as.Date("2025-10-01")) %>%
+   filter(!location_name %in% c("US", "Puerto Rico", "District of Columbia")) %>%
+   select(date, location_name, weekly_rate) %>%
+   pivot_wider(names_from = location_name, values_from = weekly_rate) %>%
+   arrange(date)
+
+# Calculate lagged correlations
+calc_lagged_corr <- function(lead_weeks) {
+   sc_future <- lead(wide_data$`South Carolina`, n = lead_weeks)
+   
+   wide_data %>%
+      select(-date, -`South Carolina`) %>%
+      map_df(~cor(.x, sc_future, use = "pairwise.complete.obs")) %>%
+      mutate(lead = paste0(lead_weeks, " Week Lead")) %>%
+      pivot_longer(-lead, names_to = "state", values_to = "correlation")
+}
+
+lagged_results <- bind_rows(calc_lagged_corr(1), calc_lagged_corr(2), calc_lagged_corr(3))
+
+# Get top predictors
+top_predictors <- lagged_results %>%
+   group_by(state) %>%
+   summarize(avg_corr = mean(correlation, na.rm = TRUE)) %>%
+   slice_max(avg_corr, n = 15) %>%
+   pull(state)
+
+plot_b <- ggplot(lagged_results %>% filter(state %in% top_predictors), 
+                 aes(x = lead, y = reorder(state, correlation), fill = correlation)) +
+   geom_tile(color = "white", linewidth = 0.5) +
+   scale_fill_viridis_c(option = "magma", direction = -1, end = 0.9, begin = 0.3, 
+                        name = "Pearson\nCorrelation Coefficient (r)") +
+   labs(
+      title = "B. Which States Lead South Carolina's Influenza Trends?",
+      subtitle = "Measuring how current trends in other states mirror SC’s 1-3 weeks future trends (Oct 2025 – Present)",
+      caption = "A correlation of 1.0 means the state tracks SC trends perfectly. The top 15 states are displayed according to the correlation.",
+      x = "Lead Time",
+      y = "Potential Warning State"
+   ) +
+   theme_minimal() +
+   theme(
+      legend.position = "right",
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 11),
+      axis.title = element_text(size = 12),
+      plot.title = element_text(size = 16, hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(size = 13, hjust = 0.5),  # Increased to 13
+      plot.caption = element_text(size = 10, hjust = 0.5),
+      legend.title = element_text(size = 10),
+      plot.margin = margin(10, 20, 10, 10),
+      panel.grid.major = element_blank()
+   )
+
+# ============================================================================
+# PLOT C: New York vs South Carolina Time Series
+# ============================================================================
+
+# Prepare lagged data
+lagged_data <- df %>%
+   mutate(date = as.Date(date)) %>%
+   filter(date >= as.Date("2025-10-01")) %>%
+   filter(location_name %in% c("South Carolina", "New York")) %>%
+   select(date, location_name, weekly_rate) %>%
+   pivot_wider(names_from = location_name, values_from = weekly_rate) %>%
+   arrange(date) %>%
+   mutate(
+      `New York (1-Week Lag)` = lag(`New York`, n = 1)
+   ) %>%
+   select(date, `South Carolina`, `New York (1-Week Lag)`) %>%
+   drop_na() %>%
+   pivot_longer(-date, names_to = "States", values_to = "Rate")
+
+# Identify peak date
+peak_date_sc <- lagged_data %>%
+   filter(States == "South Carolina") %>%
+   filter(Rate == max(Rate)) %>%
+   pull(date)
+
+plot_c <- ggplot(lagged_data, aes(x = date, y = Rate, color = States, group = States)) +
+   geom_vline(xintercept = as.numeric(peak_date_sc), 
+              linetype = "dashed", 
+              color = "grey40", 
+              linewidth = 0.8) +
+   geom_line(linewidth = 1.3) +
+   geom_point(size = 2.5) +
+   annotate("text", x = peak_date_sc, y = max(lagged_data$Rate), 
+            label = "Peak Alignment", angle = 90, vjust = -0.5, hjust = 3, 
+            size = 3.5, color = "grey40") +
+   scale_color_manual(values = c("South Carolina" = "red", "New York (1-Week Lag)" = "purple")) +
+   scale_x_date(
+      date_breaks = "1 week", 
+      date_labels = "%b %d"
+   ) +
+   scale_y_continuous(expand = expansion(mult = c(0.05, 0.1))) +
+   labs(
+      title = "C. New York as an Early Warning: 1-Week Leading Indicator for South Carolina",
+      subtitle = "NY hospitalization rate from 1-week ago plotted against SC current week rate",
+      x = "Reporting Week (Current)",
+      y = "Weekly Hospitalization Rate (Oct 2025 – Present) per 100k",
+      caption = "Dashed line shows that when New York hospitalization rate is lagged by 1-week, the trends align, indicating a predictive relationship."
+   ) +
+   theme_minimal() +
+   theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+      axis.text.y = element_text(size = 10),
+      axis.title = element_text(size = 12),
+      plot.title = element_text(size = 16, hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(size = 13, hjust = 0.5),  # Increased to 13
+      plot.caption = element_text(size = 10, hjust = 0.5),
+      legend.title = element_blank(),
+      legend.position = "right",
+      legend.text = element_text(size = 10),
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(10, 10, 10, 20)
+   )
+
+# ============================================================================
+# COMBINE PLOTS - IMPROVED LAYOUT WITH LARGER PLOT A
+# ============================================================================
+
+# Make Plot A even bigger to reduce blank space
+combined_plot_custom <- plot_a / (plot_b + plot_c + plot_layout(widths = c(1, 1))) +
+   plot_layout(
+      heights = c(1.4, 1)  # Increased Plot A height from 1.2 to 1.4
+   ) +
+   plot_annotation(
+      title = "Identifying Early Warning Signals for Influenza Outbreaks in South Carolina",
+      subtitle = "Analysis of state-level influenza hospitalization patterns (October 2025 – Present)",
+      caption = "Data Source: National Healthcare Safety Network Hospital Respiratory Dataset",
+      theme = theme(
+         plot.title = element_text(size = 22, face = "bold", hjust = 0.5, margin = margin(b = 10)),
+         plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 15)),
+         plot.caption = element_text(size = 11, hjust = 0.5, margin = margin(t = 10)),
+         plot.margin = margin(15, 15, 15, 15)  # Reduced overall margins
+      )
+   )
+
+# ============================================================================
+# SAVE COMBINED PLOTS
+# ============================================================================
+
+# Save custom layout
+ggsave(
+   filename = "/Users/tanvirahammed/Downloads/Combined_Flu_Visualization_Custom.png", 
+   plot = combined_plot_custom,
+   width = 18,
+   height = 15,  # Increased height to accommodate larger Plot A
+   dpi = 300,
+   bg = "white"
+)
+
+# Display the plot
+print(combined_plot_custom)
+
